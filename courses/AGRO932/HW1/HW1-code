@@ -1,0 +1,117 @@
+### HW1 - theta and Fst calculation
+
+# glycine max mitochondrial genome -> moved file to github on web, git pull
+# found .fa file at --- https://www.ncbi.nlm.nih.gov/nuccore/NC_020455.1?report=fasta
+# download file. Either move to GitHub and push to remote computer, or scp to remote computer
+
+# simulation parameters
+wgsim glycinemaxMT.fa \
+-e 0 -d 500 -N 5000 -1 100 -2 100 -r 0.01  \
+-R 0 -X 0 -S 1234567 l1.read1.fq l1.read2.fq
+
+# simulate 20 individuals
+for i in {1..20}
+do
+   wgsim glycinemaxMT.fa -e 0 -d 500 -N 50000 -1 100 -2 100 -r 0.1  -R 0 -X 0 l$i.read1.fq l$i.read2.fq
+done
+
+# check number of reads (should be 200,000 lines = 50,000 reads)
+wc -l l1.read1.fq 
+
+# align reads to reference genome
+module load bwa samtools bcftools
+# index the reference genome
+bwa index glycinemaxMT.fa
+
+
+################ slurm script for alignment
+#!/bin/bash -l
+#SBATCH --output=/common/soybean/bharms4/slurm-log/output/alignHW1soy-stdout-%j.txt
+#SBATCH --error=/common/soybean/bharms4/slurm-log/error/alignHW1soy-stderr-%j.txt
+#SBATCH --job-name=alignHW1soy
+#SBATCH --time 24:00:00
+#SBATCH --mail-user=benjamin.harms@huskers.unl.edu
+#SBATCH --mail-type=ALL #email if ends
+#SBATCH --mail-type=FAIL #email if fails
+
+module load bwa samtools
+cd /common/soybean/bharms4/courses/2022-agro932-lab/largedata1/HW1
+# alignment
+for i in {1..20}; do bwa mem glycinemaxMT.fa l$i.re>
+# sort
+for i in *.bam; do samtools sort $i -o sorted_$i; done
+# index them
+for i in sorted*.bam; do samtools index $i; done
+#################
+
+
+# obtain SNP calls
+### index the genome assembly
+samtools faidx glycinemaxMT.fa
+### Run `mpileup` to generate VCF format - takes some time to run
+ls sorted_l*bam > bamlist.txt
+samtools mpileup -g -f glycinemaxMT.fa -b bamlist.txt > myraw.bcf ####submit this command in slurm script
+module load bcftools
+bcftools call myraw.bcf -cv -Ob -o snps.bcf
+
+# Extract SNP information
+### Extract allele frequency at each position
+bcftools query -f '%CHROM %POS %AF1\n' snps.bcf > frq.txt
+bcftools query -f '%CHROM %POS %REF %ALT [\t%GT]\n' snps.bcf > geno.txt
+### frq.txt used for pi, geno.txt used for Fst
+
+
+
+######## Computing Fst
+geno <- read.table("geno.txt", header=FALSE)
+names(geno) <- c("chr", "pos", "ref", "alt", "l1", "l2", "l3", "l4", "l5", "l6", "l7", "l8", "l9", "l10", "l11", "l12", "l13", "l14", "l15", "l16", "l17", "l18", "l19", "l20")
+for(i in 5:24){
+  # replace slash and everything after it as nothing
+  geno$newcol <- gsub("/.*", "", geno[,i] )
+  # extract the line name
+  nm <- names(geno)[i]
+  # assign name for this allele
+  names(geno)[ncol(geno)] <- paste0(nm, sep="_a1")
+  geno$newcol <- gsub(".*/", "", geno[,i] )
+  names(geno)[ncol(geno)] <- paste0(nm, sep="_a2")
+}
+# Compute p, p1, p2 from allele columns(20 for 20 individuals)
+geno$p <- apply(geno[, 25:64], 1, function(x) {sum(as.numeric(as.character(x)))})
+geno$p <- geno$p/20
+geno$p1 <- apply(geno[, 25:44], 1, function(x) {sum(as.numeric(as.character(x)))})
+geno$p1 <- geno$p1/10
+geno$p2 <- apply(geno[, 45:64], 1, function(x) {sum(as.numeric(as.character(x)))})
+geno$p2 <- geno$p2/10
+
+# Calculate Fst using p, p1, p2
+geno$fst <- with(geno, ((p1-p)^2 + (p2-p)^2)/(2*p*(1-p)))
+
+# visualize Fst results
+# fst <- read.csv("cache/fst.csv")
+plot(geno$pos, geno$fst, xlab="Physical position", ylab="Fst value", main="Soybean Fst")
+
+
+
+
+######## calculate theta pi for both populations at each position then average across all loci
+pi <- function(n=20, p=geno){
+  return(n/(n-1)*(1-p^2-(1-p)^2))
+}
+## Create new column for population 1 pi at each position
+geno$pi1 <- pi(n=20, p=geno[, 66])
+## Create new column for population 2 pi at each position
+geno$pi2 <- pi(n=20, p=geno[, 67])
+
+
+### Population 1 theta: add pi values at all loci and divide by number of loci
+totalpi1 <- sum(geno$pi1)
+loci <- 253518
+theta1 <- totalpi1/loci
+## output > 0.2142263
+
+### Population 2 theta: add pi values at all loci and divide by number of loci
+totalpi2 <- sum(geno$pi2)
+loci <- 253518
+theta2 <- totalpi2/loci
+## output > 0.2132405
+
