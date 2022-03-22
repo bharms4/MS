@@ -1,0 +1,13 @@
+## Upload file to HCC
+scp 1KMIPs_VP.csv bharms4@crane.unl.edu:/common/soybean/bharms4/repos/personal/MS/courses/AGRO932/largedata/midterm
+
+module load R
+R
+
+vp <- read.csv("1KMIPs_VP.csv")
+## format data
+for(i in 10:201){
+  # replace slash and everything after it as nothing
+  vp[,i] <- gsub(":.*", "", vp[,i] )
+}
+
