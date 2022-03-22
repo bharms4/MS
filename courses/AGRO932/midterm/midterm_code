@@ -1,0 +1,297 @@
+## Get genotype files from Kim et al., 2021
+
+# download from internet
+# wget https://figshare.com/ndownloader/files/21785100
+# download to personal computer and scp to HCC
+# unzip it
+gunzip SoyHapMap.SNP.GT.vcf.gz
+
+# managing data for chr9, pos 0-8,000,000
+head -n 5 SoyHapMap.SNP.GT.vcf
+tail -n 5 SoyHapMap.SNP.GT.vcf
+
+# New file with chromosome 9
+grep -i "Chr09" SoyHapMap.SNP.GT.vcf > chr9.vcf
+# take 20 individuals, 10 South Korea landrace, 10 south korea improved
+cut -f 1,2,3,4,10,17,20,22,66,67,75,76,77,78,61,62,63,65,68,69,71,94,95,96 chr9.vcf > twopopsChr9.vcf
+# Chr 9, pos 0 - 8,000,000
+
+
+######## Computing Fst - two small populations
+geno <- read.csv("twopopsChr9.csv", header=TRUE)
+# If no column headers:
+# names(geno) <- c("chr", "pos", "ref", "alt", "l1", "l2", "l3", "l4", "l5", "l6", "l7", "l8", "l9", "l10", "l11", "l12", "l13", "l14", "l15", "l16", "l17", "l18", "l19", "l20")
+
+#small populations:
+for(i in 5:24){
+  # replace slash and everything after it as nothing
+  geno$newcol <- gsub("/.*", "", geno[,i] )
+  # extract the line name
+  nm <- names(geno)[i]
+  # assign name for this allele
+  names(geno)[ncol(geno)] <- paste0(nm, sep="_a1")
+  geno$newcol <- gsub(".*/", "", geno[,i] )
+  names(geno)[ncol(geno)] <- paste0(nm, sep="_a2")
+}
+# replace . with NA in allele columns
+for(i in 25:64){
+  geno[,i] <- gsub("\\.","NA",geno[,i]) 
+  # need \\ before . to identify as special character
+}
+
+########large training population
+geno <- read.csv("1KMIPs_TPvQTL.csv", header=TRUE)
+for(i in 10:196){
+  # replace slash and everything after it as nothing
+  geno$newcol <- gsub("/.*", "", geno[,i] )
+  # extract the line name
+  nm <- names(geno)[i]
+  # assign name for this allele
+  names(geno)[ncol(geno)] <- paste0(nm, sep="_a1")
+  geno$newcol <- gsub(".*/", "", geno[,i] )
+  names(geno)[ncol(geno)] <- paste0(nm, sep="_a2")
+}
+# replace . with NA in allele columns
+for(i in 197:570){
+  geno[,i] <- gsub("\\.","NA",geno[,i]) 
+  # need \\ before . to identify as special character
+}
+##calculate theta
+geno$p <- apply(geno[, 197:570], 1, function(x) {sum(as.numeric(as.character(x)),na.rm = TRUE)})
+geno$p <- geno$p/187
+pi <- function(n=20, p=geno){
+  return(n/(n-1)*(1-p^2-(1-p)^2))
+}
+geno$pi <- pi(n=20, p=geno[, 571])
+totalpi <- sum(geno$pi, na.rm = TRUE) #for some reason there are missing values
+loci <- 845
+theta1 <- totalpi/loci
+
+
+
+## for two small populations
+geno$pop10 <- rowSums(geno[, 25:44] == "0")
+geno$pop11 <- rowSums(geno[, 25:44] == "1")
+geno$pop20 <- rowSums(geno[, 45:64] == "0")
+geno$pop21 <- rowSums(geno[, 45:64] == "1")
+geno$npop  <- rowSums(geno[, 65:68])
+geno$npop1 <- rowSums(geno[, 65:66])
+geno$npop2 <- rowSums(geno[, 67:68])
+
+
+# Compute p, p1, p2 from allele columns(20 for 20 individuals) add 1's together and divide by # of individuals in population
+# pop1 is l1 - l10
+# pop2 is l11 - l20
+geno$p <- apply(geno[, 25:64], 1, function(x) {sum(as.numeric(as.character(x)),na.rm = TRUE)})
+geno$p <- geno$p/geno$npop
+geno$p1 <- apply(geno[, 25:44], 1, function(x) {sum(as.numeric(as.character(x)),na.rm = TRUE)})
+geno$p1 <- geno$p1/geno$npop1
+geno$p2 <- apply(geno[, 45:64], 1, function(x) {sum(as.numeric(as.character(x)), na.rm = TRUE)})
+geno$p2 <- geno$p2/geno$npop2
+
+# Calculate Fst using p, p1, p2
+geno$fst <- with(geno, ((p1-p)^2 + (p2-p)^2)/(2*p*(1-p)))
+
+# remove NaN values
+geno <- subset(geno, fst != "NaN")
+
+# visualize Fst results
+# fst <- read.csv("cache/fst.csv")
+pdf("soyhapFst.pdf")
+plot(geno$pos, geno$fst, xlab="Physical position", ylab="Fst value", main="Soybean Fst")
+dev.off()
+
+
+
+######## calculate theta pi for both populations at each position then average across all loci
+pi <- function(n=20, p=geno){
+  return(n/(n-1)*(1-p^2-(1-p)^2))
+}
+## Create new column for population 1 pi at each position
+geno$pi1 <- pi(n=20, p=geno[, 73])
+## Create new column for population 2 pi at each position
+geno$pi2 <- pi(n=20, p=geno[, 74])
+
+
+### Population 1 theta: add pi values at all loci and divide by number of loci
+totalpi1 <- sum(geno$pi1, na.rm = TRUE) #for some reason there are missing values
+loci <- 74835
+theta1 <- totalpi1/loci
+## output > 0.2142263
+
+### Population 2 theta: add pi values at all loci and divide by number of loci
+totalpi2 <- sum(geno$pi2)
+loci <- 74835
+theta2 <- totalpi2/loci
+## output > 0.2132405
+
+geno <- subset(geno, fst != "NaN")
+
+
+# plot theta across positions
+pdf("happop1pi.pdf")
+plot(geno$pos, geno$pi1, xlab="Physical position", ylab="theta pi", main="pop1 pi")
+dev.off()
+
+pdf("happop2pi.pdf")
+plot(geno$pos, geno$pi2, xlab="Physical position", ylab="theta pi", main="pop2 pi")
+dev.off()
+
+# Theta and Fst
+# Indirect Selection Scan
+
+
+
+
+
+### Scan for indirect selection using annotated gene positions
+# obtain site frequency spectrum from sequencing data
+
+geno <- read.csv("twopopsChr9.csv", header = TRUE)
+# names(geno) <- NULL
+dim(geno)
+head(geno)
+for(i in 5:24){
+  # replace slash and everything after it as nothing
+  geno$newcol <- gsub("/.*", "", geno[,i] )
+  # extract the line name
+  nm <- names(geno)[i]
+  # assign name for this allele
+  names(geno)[ncol(geno)] <- paste0(nm, sep="_a1")
+  geno$newcol <- gsub(".*/", "", geno[,i] )
+  names(geno)[ncol(geno)] <- paste0(nm, sep="_a2")
+}
+# switch "." missing values with "NA"
+for(i in 25:64){
+  geno[,i] <- gsub("\\.","NA",geno[,i]) 
+  # need \\ before . to identify as special character
+}
+# delete rows with NA for derived allele number
+r1 <- with(geno, which(l1_a1=="NA", arr.ind=TRUE))
+r2 <- with(geno, which(l1_a2=="NA", arr.ind=TRUE))
+r3 <- with(geno, which(l2_a1=="NA", arr.ind=TRUE))
+r4 <- with(geno, which(l2_a2=="NA", arr.ind=TRUE))
+r5 <- with(geno, which(l3_a1=="NA", arr.ind=TRUE))
+r6 <- with(geno, which(l3_a2=="NA", arr.ind=TRUE))
+r7 <- with(geno, which(l4_a1=="NA", arr.ind=TRUE))
+r8 <- with(geno, which(l4_a2=="NA", arr.ind=TRUE))
+r9 <- with(geno, which(l5_a1=="NA", arr.ind=TRUE))
+r10 <- with(geno, which(l5_a2=="NA", arr.ind=TRUE))
+r11 <- with(geno, which(l6_a1=="NA", arr.ind=TRUE))
+r12 <- with(geno, which(l6_a2=="NA", arr.ind=TRUE))
+r13 <- with(geno, which(l7_a1=="NA", arr.ind=TRUE))
+r14 <- with(geno, which(l7_a2=="NA", arr.ind=TRUE))
+r15 <- with(geno, which(l8_a1=="NA", arr.ind=TRUE))
+r16 <- with(geno, which(l8_a2=="NA", arr.ind=TRUE))
+r17 <- with(geno, which(l9_a1=="NA", arr.ind=TRUE))
+r18 <- with(geno, which(l9_a2=="NA", arr.ind=TRUE))
+r19 <- with(geno, which(l10_a1=="NA", arr.ind=TRUE))
+r20 <- with(geno, which(l10_a2=="NA", arr.ind=TRUE))
+r21 <- with(geno, which(l11_a1=="NA", arr.ind=TRUE))
+r22 <- with(geno, which(l11_a2=="NA", arr.ind=TRUE))
+r23 <- with(geno, which(l12_a1=="NA", arr.ind=TRUE))
+r24 <- with(geno, which(l12_a2=="NA", arr.ind=TRUE))
+r25 <- with(geno, which(l13_a1=="NA", arr.ind=TRUE))
+r26 <- with(geno, which(l13_a2=="NA", arr.ind=TRUE))
+r27 <- with(geno, which(l14_a1=="NA", arr.ind=TRUE))
+r28 <- with(geno, which(l14_a2=="NA", arr.ind=TRUE))
+r29 <- with(geno, which(l15_a1=="NA", arr.ind=TRUE))
+r30 <- with(geno, which(l15_a2=="NA", arr.ind=TRUE))
+r31 <- with(geno, which(l16_a1=="NA", arr.ind=TRUE))
+r32 <- with(geno, which(l16_a2=="NA", arr.ind=TRUE))
+r33 <- with(geno, which(l17_a1=="NA", arr.ind=TRUE))
+r34 <- with(geno, which(l17_a2=="NA", arr.ind=TRUE))
+r35 <- with(geno, which(l18_a1=="NA", arr.ind=TRUE))
+r36 <- with(geno, which(l18_a2=="NA", arr.ind=TRUE))
+r37 <- with(geno, which(l19_a1=="NA", arr.ind=TRUE))
+r38 <- with(geno, which(l19_a2=="NA", arr.ind=TRUE))
+r39 <- with(geno, which(l20_a1=="NA", arr.ind=TRUE))
+r40 <- with(geno, which(l20_a2=="NA", arr.ind=TRUE))
+r <- c(r1,r2,r3,r4,r5,r6,r7,r8,r9,r10,r11,r12,r13,r14,r15,r16,r17,r18,r19,r20,r21,r22,r23,r24,r25,r26,r27,r28,r29,r30,r31,r32,r33,r34,r35,r36,r37,r38,r39,r40)
+r_unique <- unique(r)
+geno1 <- geno[-r_unique, ]
+
+# count the number of derived allele
+geno1[, 25:64] <- apply(geno1[, 25:64], 2, as.numeric)
+geno1$da <- apply(geno1[, 25:64], 1, sum)
+write.table(geno1[, c("chr", "pos", "da")], "twopops_derived_alleles.csv", sep=",", row.names = FALSE, quote=FALSE)
+
+
+# download .gff file from ensembl under species home page > gene annotation
+# in R:
+library("data.table")
+## grep -v means select lines that not matching any of the specified patterns to read in table
+gff <- fread(cmd='grep -v "#" Glycine_max.Glycine_max_v2.1.52.chromosome.9.gff3', header=FALSE, data.table=FALSE)
+# rename columns
+names(gff) <- c("seq", "source", "feature", "start", "end", "score", "strand", "phase", "att")
+table(gff$feature)
+
+# start and end positions of each gene
+gene <- subset(gff, feature %in% "gene")
+gene$geneid <- gsub(".*gene:|;biotype.*", "", gene$att)
+
+# Tajima's D function in R
+TajimaD <- function(sfs){
+    #' sfs (site frequency spectrum): number of singletons, doubletons, ..., etc
+    n <- length(sfs) + 1 # number of chromosomes
+    ss <- sum(sfs) # number of segregating sites
+    a1 <- sum(1 / seq_len(n-1)) 
+    a2 <- sum(1 / seq_len(n-1)^2)
+    b1 <- (n + 1) / (3 * (n - 1))
+    b2 <- 2 * (n^2 + n + 3)/(9 * n * (n - 1))
+    c1 <- b1 - 1/a1
+    c2 <- b2 - (n + 2)/(a1 * n) + a2 / a1^2
+    e1 <- c1 / a1
+    e2 <- c2 / (a1^2 + a2)
+    Vd <- e1 * ss + e2 * ss * (ss - 1) 
+    theta_pi <- sum(2 * seq_len(n-1) * (n - seq_len(n-1)) * sfs)/(n*(n-1))
+    theta_w <- ss / a1
+    res <- (theta_pi - theta_w) / sqrt(Vd)
+    return(res)
+}
+
+# calculate tajima's D for each gene
+df <- read.csv("twopops_derived_alleles.csv")
+# df1 <- read.csv("1KMIPs_TPvQTL.csv")
+names(df)[1:2] <- c("chr_ID", "pos")
+df$chr <- 9  #all positions are chromosome 9, format to match gene file
+res <- data.frame()
+sfs0 <- data.frame(Var1=1:19, value=0)
+for(i in 1:nrow(gene)){
+  sub <- subset(df, chr %in% gene$seq[i] & pos > gene$start[i] & pos < gene$end[i])
+  tem <- as.data.frame(table(sub$da))
+  if(nrow(tem) > 0){
+    newsfs <- merge(sfs0, tem, by="Var1", all.x=TRUE)
+    newsfs[is.na(newsfs$Freq),]$Freq <- 0
+    out <- data.frame(win=i, gene=gene$geneid[i], gene.start=gene$start[i], gene.end=gene$end[i], tajimad = TajimaD(sfs=newsfs$Freq))
+    res <- rbind(res, out)
+  }
+}
+res <- res[order(res$tajimad),]
+
+## plot results (scatter plot)
+pdf("graphs/tajimad_res.pdf", height=5, width=10)
+plot(x=res$gene.start, y=res$tajimad, pch=16, col="red", xlab="Gene start position", ylab="Tajima D")
+dev.off()
+## plot results (histogram)
+pdf("graphs/hist_tajimad_res.pdf", height=5, width=5)
+hist(res$tajimad, xlab="Tajima D", ylab="Frequency")
+dev.off()
+
+
+## summary of Tajima's D values
+# remove NA
+res.na <- with(res, which(tajimad=="NaN", arr.ind=TRUE))
+res <- res[-res.na, ]
+
+# observe number of significant sites
+sum(res$tajimad > 2.0)
+sum(res$tajimad < -2.0)
+
+#export significant sites
+res1 <- c(1,322:361)
+sig.res <- res[res1,]
+write.table(sig.res[, c("gene.start", "gene.end", "win", "gene", "tajimad")], "sig_tajimad.txt", sep="\t", row.names = FALSE, quote=FALSE)
+
+# compare significant sites to MIPs positions
+sig.res <- sig.res[order(sig.res$gene.start),]
