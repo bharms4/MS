@@ -1,0 +1,214 @@
+## Midterm code for analysis of my two populations with 1k MIPs data
+
+#       TP: 186 individuals, 845 markers
+#       VP: 192 individuals, 1005 markers
+
+
+###### calculating theta pi for TP and VP from original marker data
+######## Training population formatting
+geno1 <- read.csv("1KMIPs_TPvQTL.csv", header=TRUE)
+for(i in 10:196){
+  # replace slash and everything after it as nothing
+  geno1$newcol <- gsub("/.*", "", geno1[,i] )
+  # extract the line name
+  nm <- names(geno1)[i]
+  # assign name for this allele
+  names(geno1)[ncol(geno1)] <- paste0(nm, sep="_a1")
+  geno1$newcol <- gsub(".*/", "", geno1[,i] )
+  names(geno1)[ncol(geno1)] <- paste0(nm, sep="_a2")
+}
+# replace . with NA in allele columns
+for(i in 197:570){
+  geno1[,i] <- gsub("\\.","NA",geno1[,i]) 
+  # need \\ before . to identify as special character
+}
+
+######### Validation population formatting
+# scp file to remote computer
+scp 1KMIPs_VP.csv bharms4@crane.unl.edu:/common/soybean/bharms4/repos/personal/MS/courses/AGRO932/largedata/midterm
+# read data in R
+geno2 <- read.csv("1KMIPs_VP.csv")
+
+#### formating VP data
+## clean up raw sequencing data
+for(i in 10:201){
+  geno2[,i] <- gsub(":.*", "", geno2[,i])
+}
+#check data
+geno2[10:15,14:19]
+# format first column to split into chromosome number and position
+ geno2[,2] <- gsub(".*_", "", geno2[,1])
+ geno2[,1] <- gsub("_.*", "", geno2[,1])
+
+## split alleles into separate columns
+for(i in 10:201){
+  # replace slash and everything after it as nothing
+  geno2$newcol <- gsub("/.*", "", geno2[,i] )
+  # extract the line name
+  nm <- names(geno2)[i]
+  # assign name for this allele
+  names(geno2)[ncol(geno2)] <- paste0(nm, sep="_a1")
+  geno2$newcol <- gsub(".*/", "", geno2[,i] )
+  names(geno2)[ncol(geno2)] <- paste0(nm, sep="_a2")
+}
+# replace . with NA in allele columns
+for(i in 202:585){
+  geno2[,i] <- gsub("\\.","NA",geno2[,i]) 
+  # need \\ before . to identify as special character
+}
+
+
+##### calculate training population theta
+geno1$pop0 <- rowSums(geno1[, 197:570] == "0")
+geno1$pop1 <- rowSums(geno1[, 197:570] == "1")
+geno1$npop  <- rowSums(geno1[, 571:572])
+geno1$p <- apply(geno1[, 197:570], 1, function(x) {sum(as.numeric(as.character(x)),na.rm = TRUE)})
+geno1$p <- geno1$p/geno1$npop
+pi <- function(n=20, p=geno1){
+  return(n/(n-1)*(1-p^2-(1-p)^2))
+}
+  geno1$pi <- pi(n=20, p=geno1[, 574])
+  totalpi1 <- sum(geno1$pi, na.rm = TRUE) #for some reason there are missing values
+  loci1 <- 845
+  theta1 <- totalpi1/loci1
+theta1
+    ## output = 0.3366901
+
+##### calculate validation population theta
+geno2$pop0 <- rowSums(geno2[, 202:585] == "0")
+geno2$pop1 <- rowSums(geno2[, 202:585] == "1")
+geno2$npop  <- rowSums(geno2[, 586:587])
+geno2$p <- apply(geno2[, 202:585], 1, function(x) {sum(as.numeric(as.character(x)),na.rm = TRUE)})
+geno2$p <- geno2$p/geno2$npop
+geno2[125:130,582:589]
+pi <- function(n=20, p=geno2){
+  return(n/(n-1)*(1-p^2-(1-p)^2))
+}
+geno2$pi <- pi(n=20, p=geno2[, 589])
+totalpi2 <- sum(geno2$pi, na.rm = TRUE) #for some reason there are missing values
+loci2 <- 1005
+theta2 <- totalpi2/loci2
+   ## output = 0.2686129
+
+# plot theta across positions
+pdf("TPpi.pdf")
+plot(geno$pos, geno1$pi1, xlab="Physical position", ylab="theta pi", main="TP theta pi")
+dev.off()
+
+pdf("VPpi.pdf")
+plot(geno$pos, geno2$pi2, xlab="Physical position", ylab="theta pi", main="VP theta pi")
+dev.off()
+
+
+
+
+############### combine the two populations into one dataset, align markers
+# TP genotypes (186 total): columns 6 - 192
+# VP genotypes (192 total): columns 193 - 384
+
+geno <- read.csv("TPandVP_MIPs.csv", header = TRUE)
+##### Format 2 VP and TP in one dataset
+for(i in 6:384){
+  # replace slash and everything after it as nothing
+  geno$newcol <- gsub("/.*", "", geno[,i] )
+  # extract the line name
+  nm <- names(geno)[i]
+  # assign name for this allele
+  names(geno)[ncol(geno)] <- paste0(nm, sep="_a1")
+  geno$newcol <- gsub(".*/", "", geno[,i] )
+  names(geno)[ncol(geno)] <- paste0(nm, sep="_a2")
+}
+dim(geno)
+# replace . with NA in allele columns
+for(i in 385:1142){
+  geno[,i] <- gsub("\\.","NA",geno[,i]) 
+  # need \\ before . to identify as special character
+}
+
+######## Calculate Fst for 2 larger populations
+## for two populations
+geno$pop10 <- rowSums(geno[, 385:756] == "0")
+geno$pop11 <- rowSums(geno[, 385:756] == "1")
+geno$pop20 <- rowSums(geno[, 757:1142] == "0")
+geno$pop21 <- rowSums(geno[, 757:1142] == "1")
+geno$npop  <- rowSums(geno[, 1143:1146])
+geno$npop1 <- rowSums(geno[, 1143:1144])
+geno$npop2 <- rowSums(geno[, 1145:1146])
+
+# Compute p, p1, p2 from allele columns(20 for 20 individuals) add 1's together and divide by # of individuals in population
+# pop1 is l1 - l10
+# pop2 is l11 - l20
+geno$p <- apply(geno[, 385:1142], 1, function(x) {sum(as.numeric(as.character(x)),na.rm = TRUE)})
+geno$p <- geno$p/geno$npop
+geno$p1 <- apply(geno[, 385:756], 1, function(x) {sum(as.numeric(as.character(x)),na.rm = TRUE)})
+geno$p1 <- geno$p1/geno$npop1
+geno$p2 <- apply(geno[, 757:1142], 1, function(x) {sum(as.numeric(as.character(x)), na.rm = TRUE)})
+geno$p2 <- geno$p2/geno$npop2
+
+# Calculate Fst using p, p1, p2
+geno$fst <- with(geno, ((p1-p)^2 + (p2-p)^2)/(2*p*(1-p)))
+
+# check Fst values
+geno$fst
+
+# remove wrong values
+#6.666895e+00 - 410
+#1.245654e+00 - 616
+#1.560526e+00 - 600
+#1.298585e+00 - 617
+#2.575173e+00 - 209
+geno1 <- c(410,616,600,617,209)
+geno <- geno[-geno1,]
+
+# remove NaN values in Fst
+geno <- subset(geno, fst != "NaN")
+
+
+# visualize Fst results
+# fst <- read.csv("cache/fst.csv")
+pdf("TPandVP_Fst.pdf")
+plot(geno$POS, geno$fst, xlab="Physical position", ylab="Fst value", main="TP-VP Fst")
+dev.off()
+
+######## calculate theta pi for both populations at each position then average across all loci
+### theta for VP and TP across same loci
+pi <- function(n=20, p=geno){
+  return(n/(n-1)*(1-p^2-(1-p)^2))
+}
+## Create new column for population 1 pi at each position
+geno$pi1 <- pi(n=20, p=geno[, 1151])
+## Create new column for population 2 pi at each position
+geno$pi2 <- pi(n=20, p=geno[, 1152])
+
+### Population 1 theta: add pi values at all loci and divide by number of loci
+totalpi1 <- sum(geno$pi1, na.rm = TRUE) #for some reason there are missing values
+loci <- 778
+theta1 <- totalpi1/loci
+    # output: 0.3498
+
+### Population 2 theta: add pi values at all loci and divide by number of loci
+totalpi2 <- sum(geno$pi2, na.rm = TRUE)
+loci <- 778
+theta2 <- totalpi2/loci
+    # output: 0.3195
+
+
+geno <- subset(geno, fst != "NaN")
+
+
+# plot theta across positions
+pdf("TP_pi.pdf")
+plot(geno$POS, geno$pi1, xlab="Physical position", ylab="theta pi", main="TP pi")
+dev.off()
+
+pdf("VP_pi.pdf")
+plot(geno$POS, geno$pi2, xlab="Physical position", ylab="theta pi", main="VP pi")
+dev.off()
+
+
+
+
+
+
+
+
