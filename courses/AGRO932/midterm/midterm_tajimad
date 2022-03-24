@@ -1,9 +1,8 @@
 ## Get genotype files from Kim et al., 2021
 
 # download from internet
-# wget https://figshare.com/ndownloader/files/21785100
-# download to personal computer and scp to HCC
-# unzip it
+# https://figshare.com/projects/Soybean_haplotype_map_project/76110 > SNP variants
+# scp to remote computer
 gunzip SoyHapMap.SNP.GT.vcf.gz
 
 # managing data for chr9, pos 0-8,000,000
@@ -17,7 +16,7 @@ cut -f 1,2,3,4,10,17,20,22,66,67,75,76,77,78,61,62,63,65,68,69,71,94,95,96 chr9.
 # Chr 9, pos 0 - 8,000,000
 
 
-######## Computing Fst - two small populations
+######## Format sequence data: two small populations
 geno <- read.csv("twopopsChr9.csv", header=TRUE)
 # If no column headers:
 # names(geno) <- c("chr", "pos", "ref", "alt", "l1", "l2", "l3", "l4", "l5", "l6", "l7", "l8", "l9", "l10", "l11", "l12", "l13", "l14", "l15", "l16", "l17", "l18", "l19", "l20")
@@ -39,36 +38,10 @@ for(i in 25:64){
   # need \\ before . to identify as special character
 }
 
-########large training population
-geno <- read.csv("1KMIPs_TPvQTL.csv", header=TRUE)
-for(i in 10:196){
-  # replace slash and everything after it as nothing
-  geno$newcol <- gsub("/.*", "", geno[,i] )
-  # extract the line name
-  nm <- names(geno)[i]
-  # assign name for this allele
-  names(geno)[ncol(geno)] <- paste0(nm, sep="_a1")
-  geno$newcol <- gsub(".*/", "", geno[,i] )
-  names(geno)[ncol(geno)] <- paste0(nm, sep="_a2")
-}
-# replace . with NA in allele columns
-for(i in 197:570){
-  geno[,i] <- gsub("\\.","NA",geno[,i]) 
-  # need \\ before . to identify as special character
-}
-##calculate theta
-geno$p <- apply(geno[, 197:570], 1, function(x) {sum(as.numeric(as.character(x)),na.rm = TRUE)})
-geno$p <- geno$p/187
-pi <- function(n=20, p=geno){
-  return(n/(n-1)*(1-p^2-(1-p)^2))
-}
-geno$pi <- pi(n=20, p=geno[, 571])
-totalpi <- sum(geno$pi, na.rm = TRUE) #for some reason there are missing values
-loci <- 845
-theta1 <- totalpi/loci
+### skip to line 113 for indirect selection scan
 
 
-
+######## Calculate Fst for 2 small populations
 ## for two small populations
 geno$pop10 <- rowSums(geno[, 25:44] == "0")
 geno$pop11 <- rowSums(geno[, 25:44] == "1")
@@ -77,7 +50,6 @@ geno$pop21 <- rowSums(geno[, 45:64] == "1")
 geno$npop  <- rowSums(geno[, 65:68])
 geno$npop1 <- rowSums(geno[, 65:66])
 geno$npop2 <- rowSums(geno[, 67:68])
-
 
 # Compute p, p1, p2 from allele columns(20 for 20 individuals) add 1's together and divide by # of individuals in population
 # pop1 is l1 - l10
@@ -100,7 +72,6 @@ geno <- subset(geno, fst != "NaN")
 pdf("soyhapFst.pdf")
 plot(geno$pos, geno$fst, xlab="Physical position", ylab="Fst value", main="Soybean Fst")
 dev.off()
-
 
 
 ######## calculate theta pi for both populations at each position then average across all loci
@@ -136,11 +107,6 @@ dev.off()
 pdf("happop2pi.pdf")
 plot(geno$pos, geno$pi2, xlab="Physical position", ylab="theta pi", main="pop2 pi")
 dev.off()
-
-# Theta and Fst
-# Indirect Selection Scan
-
-
 
 
 
