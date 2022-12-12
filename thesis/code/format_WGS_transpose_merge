@@ -1,0 +1,236 @@
+### Formatting whole genome sequence data in HCC, and transposing in R
+
+################  Training Population  ################
+## remove top 25 rows of vcf
+sed '1,25d' TPgwas.vcf > TPgwas1.vcf
+
+## remove columns 3-9
+cut --complement -f3-9 -d$'\t' TPgwas1.vcf > TPgwas.vcf
+
+## remove weird doubled entry IDs - may not be necessary every time
+awk 'BEGIN{FS="\t"; OFS=FS}{for(i=1; i<=NF; i++) sub(/_.*/,"",$i)} 1' TPgwas.vcf > TPgwas1.vcf
+
+## make column for SNP ID
+awk 'BEGIN{FS="\t";OFS=FS}{$2 = $1":"$2;} 1' TPgwas1.vcf > TPgwas.vcf
+cut --complement -f1 -d$'\t' TPgwas.vcf > TPgwas1.vcf
+
+## replace genotypes (0/0, 0/1, 1/1) with 0, 1, 2
+sed 's/\//|/g;' TPgwas1.vcf > TPgwas.vcf
+sed 's/0|0/0/g; s/0|1/1/g; s/1|1/2/g;' TPgwas.vcf > TPgwas1.vcf
+
+## make new file with only column 1 - SNP ID for common SNPs
+cut --complement -f2-202 -d$'\t' TPgwas1.vcf > TPpositions.vcf
+
+#### convert 
+
+
+
+################  Validation Population  ################
+## remove top 25 rows of vcf
+sed '1,25d' VPfinalfiltered.vcf > VPgwas1.vcf
+
+## remove columns 3-9
+cut --complement -f3-9 -d$'\t' VPgwas1.vcf > VPgwas.vcf
+
+## remove weird doubled entry IDs - may not be necessary every time
+awk 'BEGIN{FS="\t"; OFS=FS}{for(i=1; i<=NF; i++) sub(/_.*/,"",$i)} 1' VPgwas.vcf > VPgwas1.vcf
+
+## make column for SNP ID
+awk 'BEGIN{FS="\t";OFS=FS}{$2 = $1":"$2;} 1' VPgwas1.vcf > VPgwas.vcf
+cut --complement -f1 -d$'\t' VPgwas.vcf > VPgwas1.vcf
+
+## replace genotypes (0/0, 0/1, 1/1) with 0, 1, 2
+sed 's/\//|/g;' VPgwas1.vcf > VPgwas.vcf
+sed 's/0|0/0/g; s/0|1/1/g; s/1|1/2/g;' VPgwas.vcf > VPgwas1.vcf
+
+## make new file with only column 1 - SNP ID for common SNPs
+cut --complement -f2-196 -d$'\t' VPgwas1.vcf > VPpositions.vcf
+
+
+
+
+####### Transposing/common SNPs in R
+## first, remove "#" at the beginning of the first line before chr:pos using nano
+  ## for some reason, it makes R unable to read line
+
+library(data.table)
+  
+  ####### reduce files to common SNPs, transpose, and write to vcf
+  
+  ##TP w/ common VP snps
+  tp <- read.table("TPgwas1.vcf", header = FALSE, sep = "\t")
+  vpsnp <- read.table("VPpositions.vcf", header = FALSE, sep = "\t")
+  tp[1,1] <- "SNP_ID"
+  vpsnp[1,1] <- "SNP_ID"
+  colnames(tp)[1] <- "SNP_ID"
+  colnames(vpsnp)[1] <- "SNP_ID"
+  tp <- tp[(tp$SNP_ID %in% vpsnp$SNP_ID),]
+  colnames(tp) <- NULL
+  rownames(tp) <- NULL
+
+  # transpose and write to vcf - tab delimited
+  tptransposed <- transpose(tp)
+  colnames(tptransposed) <- NULL
+  rownames(tptransposed) <- NULL
+  fwrite(tptransposed, sep = "\t", "TP_transposed.vcf")
+
+
+
+  ##VP w/ common VP snps
+  vp <- read.table("VPgwas1.vcf", header = FALSE, sep = "\t")
+  tpsnp <- read.table("TPpositions.vcf", header = FALSE, sep = "\t")
+  vp[1,1] <- "SNP_ID"
+  tpsnp[1,1] <- "SNP_ID"
+  colnames(vp)[1] <- "SNP_ID"
+  colnames(tpsnp)[1] <- "SNP_ID"
+  vp <- vp[(vp$SNP_ID %in% tpsnp$SNP_ID),]
+  colnames(vp) <- NULL
+  rownames(vp) <- NULL
+  
+  ## transpose and write to vcf - tab delimited
+  vptransposed <- transpose(vp)
+  colnames(vptransposed) <- NULL
+  rownames(vptransposed) <- NULL
+  fwrite(vptransposed, sep = "\t", "VP_transposed.vcf")
+  
+  #### convert vcf (tab-delimited) to csv
+  perl -lpe 's/"/""/g; s/^|$/"/g; s/\t/","/g' < TP_transposed.vcf > TP_transposed.csv
+  perl -lpe 's/"/""/g; s/^|$/"/g; s/\t/","/g' < VP_transposed.vcf > VP_transposed.csv
+  
+  
+  
+  
+  ############# formatting TP for GWAS/GS - use fread from data.table package
+  ## add stability phenotype to file in R
+  library(data.table)
+  library(dplyr)
+  B1 <- fread("TP_transposed.csv", sep = ",")
+  pheno <- read.csv("TP_ASTABdefault.csv")
+  
+  names(B1)[names(B1) == 'SNP_ID'] <- 'Entry_ID'
+  
+  colnames(pheno) <- c("Entry_ID","predicted.value","SSI","rSP","rY","means")
+  out <- c(3,4,5,6)
+  pheno <- pheno[,-out]
+  
+  B1 <- B1[(B1$Entry_ID %in% pheno$Entry_ID),]
+  pheno <- pheno[(pheno$Entry_ID %in% B1$Entry_ID),]
+
+  B1 <- merge(B1,pheno,by="Entry_ID")
+
+  B1 <- B1 %>% relocate(predicted.value, .after = Entry_ID)
+  
+  rnames <- B1[,1]
+  rownames(B1) <- rnames
+  
+  
+  
+
+############################ data formatting for rMVP ############################
+  ## make new file with only column 1 - SNP ID for common SNPs
+  sed '1,25d' TPgwas.vcf > TPgwas1.vcf
+  sed '1,25d' VPgwas.vcf > VPgwas1.vcf
+  awk 'BEGIN{FS="\t";OFS=FS}{for(i=1;i<=NF;i++)sub(/_.*/,"",$i)} 1' TPgwas1.vcf > TPgwas2.vcf
+  awk 'BEGIN{FS="\t";OFS=FS}{for(i=1;i<=NF;i++)sub(/_.*/,"",$i)} 1' VPgwas1.vcf > VPgwas2.vcf
+
+  cut --complement -f4-215 -d$'\t' TPgwas2.vcf > TPpositions.vcf
+  cut --complement -f4-215 -d$'\t' VPgwas2.vcf > VPpositions.vcf
+
+
+####### Reduce to common SNPs in R
+## first, remove "#" at the beginning of the first line before chr:pos using nano
+  ## for some reason, it makes R unable to read line
+
+library(data.table)
+  
+  ####### reduce files to common SNPs, transpose, and write to vcf
+  
+  ##TP w/ common VP snps
+  tp <- read.table("TPgwasfiltered.vcf", header = TRUE, sep = "\t")
+  vpsnp <- read.table("VPpositionss.vcf", header = TRUE, sep = "\t")
+  #colnames(tp)[3] <- "ID"
+  colnames(vpsnp)[3] <- "ID"
+  tp <- tp[(tp$ID %in% vpsnp$ID),]
+  colnames(tp) <- NULL
+  rownames(tp) <- NULL
+
+  fwrite(tp, sep = "\t", "TPgwasfiltered.vcf")
+
+  ##VP w/ common VP snps
+  vp <- read.table("VPgwas2.vcf", header = TRUE, sep = "\t")
+  tpsnp <- read.table("TPshortpositions.vcf", header = TRUE, sep = "\t")
+  #colnames(vp)[3] <- "ID"
+  colnames(tpsnp)[3] <- "ID"
+  vp <- vp[(vp$ID %in% tpsnp$ID),]
+  colnames(vp) <- NULL
+  rownames(vp) <- NULL
+
+  fwrite(vp, sep = "\t", "VPgwasfiltered.vcf")
+  
+  
+  #### Map file - SNP (name), Chr, Pos
+  ## In terminal- remove top 25 lines, remove all columns after column 3
+  ## In R- set column 3 (SNP ID) as column 1 and change column names
+  
+  ##linux
+  sed '1,25d' TPgwas1.vcf > map.vcf
+  cut --complement -f4-215 -d$'\t' map.vcf > map1.vcf
+  awk 'BEGIN{FS="\t"; OFS=FS}{sub(/Gm/,"",$1)} 1' map1.vcf > map.vcf
+  awk 'BEGIN{FS="\t"; OFS=FS}{sub(/01/,"1",$1)} 1' map.vcf > map1.vcf
+  awk 'BEGIN{FS="\t"; OFS=FS}{sub(/02/,"2",$1)} 1' map1.vcf > map.vcf
+  awk 'BEGIN{FS="\t"; OFS=FS}{sub(/03/,"3",$1)} 1' map.vcf > map1.vcf
+  awk 'BEGIN{FS="\t"; OFS=FS}{sub(/04/,"4",$1)} 1' map1.vcf > map.vcf
+  awk 'BEGIN{FS="\t"; OFS=FS}{sub(/05/,"5",$1)} 1' map.vcf > map1.vcf
+  awk 'BEGIN{FS="\t"; OFS=FS}{sub(/06/,"6",$1)} 1' map1.vcf > map.vcf
+  awk 'BEGIN{FS="\t"; OFS=FS}{sub(/07/,"7",$1)} 1' map.vcf > map1.vcf
+  awk 'BEGIN{FS="\t"; OFS=FS}{sub(/08/,"8",$1)} 1' map1.vcf > map.vcf
+  awk 'BEGIN{FS="\t"; OFS=FS}{sub(/09/,"9",$1)} 1' map.vcf > map1.vcf
+
+  ##R
+  library(data.table)
+  library(dplyr)
+  
+  map <- read.table("map1.vcf", header = FALSE, sep = "\t")
+  colnames(map) <- c("Chr","Pos","SNP")
+  map[1,1] <- "Chr"
+  map[1,2] <- "Pos"
+  map[1,3] <- "SNP"
+  map <- map %>% relocate(SNP, .before = Chr)
+  fwrite(map, sep = "\t", "map.vcf")
+
+
+
+########## PCA ###########
+## Take eigenvec file from plink pca and convert to csv
+perl -lpe 's/"/""/g; s/^|$/"/g; s/ /","/g' < TPpca.eigenvec > TPpca.csv
+
+
+
+  
+  
+  ################ rMVP ################  ---- must load R/4.0
+  module load R/4.0
+  
+  
+  library(rMVP)
+### read in data using MVP.Data
+MVP.Data(fileVCF = "TPgwasfiltered.vcf", filePhe = "TP_ASTABdefault.csv",
+filePC = "TPpca.csv", out = "TPmvp",
+sep.phe = ",", sep.pc = ",",
+pheno_cols = NULL, SNP.impute = NULL, method= c("MLM"),
+priority = "memory", pcs.keep = 8, verbose = TRUE)
+
+modelmvp <- MVP(
+
+
+
+
+
+
+MVP.Data.Map(map, out = "mvp", cols = 1:5, header = TRUE, sep = "\t", verbose = TRUE)
+MVP.Data.PC("mvp.pc.txt", out='mvp', sep='\t')
+
+  
+  
+  
+  
